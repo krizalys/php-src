@@ -35,6 +35,7 @@
 static PHP_MINFO_FUNCTION(json);
 static PHP_FUNCTION(json_encode);
 static PHP_FUNCTION(json_decode);
+static PHP_FUNCTION(json_decode2);
 static PHP_FUNCTION(json_last_error);
 static PHP_FUNCTION(json_last_error_msg);
 
@@ -47,6 +48,7 @@ PHP_JSON_API ZEND_DECLARE_MODULE_GLOBALS(json)
 static const zend_function_entry json_functions[] = {
 	PHP_FE(json_encode, arginfo_json_encode)
 	PHP_FE(json_decode, arginfo_json_decode)
+	PHP_NS_NAMED_FE("Json", decode, PHP_FN(json_decode2), arginfo_json_decode)
 	PHP_FE(json_last_error, arginfo_json_last_error)
 	PHP_FE(json_last_error_msg, arginfo_json_last_error_msg)
 	PHP_FE_END
@@ -285,6 +287,57 @@ static PHP_FUNCTION(json_encode)
 	RETURN_EMPTY_STRING();
 }
 /* }}} */
+static PHP_FUNCTION(json_decode2)
+{
+	char *str;
+	size_t str_len;
+	zend_bool assoc = 0; /* return JS objects as PHP objects by default */
+	zend_bool assoc_null = 1;
+	zend_long depth = PHP_JSON_PARSER_DEFAULT_DEPTH;
+	zend_long options = 0;
+
+	ZEND_PARSE_PARAMETERS_START(1, 4)
+		Z_PARAM_STRING(str, str_len)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_BOOL_EX(assoc, assoc_null, 1, 0)
+		Z_PARAM_LONG(depth)
+		Z_PARAM_LONG(options)
+	ZEND_PARSE_PARAMETERS_END();
+
+	if (!(options & PHP_JSON_THROW_ON_ERROR)) {
+		JSON_G(error_code) = PHP_JSON_ERROR_NONE;
+	}
+
+	if (!str_len) {
+		if (!(options & PHP_JSON_THROW_ON_ERROR)) {
+			JSON_G(error_code) = PHP_JSON_ERROR_SYNTAX;
+		} else {
+			zend_throw_exception(php_json_exception_ce, php_json_get_error_msg(PHP_JSON_ERROR_SYNTAX), PHP_JSON_ERROR_SYNTAX);
+		}
+		RETURN_NULL();
+	}
+
+	if (depth <= 0) {
+		php_error_docref(NULL, E_WARNING, "Depth must be greater than zero");
+		RETURN_NULL();
+	}
+
+	if (depth > INT_MAX) {
+		php_error_docref(NULL, E_WARNING, "Depth must be lower than %d", INT_MAX);
+		RETURN_NULL();
+	}
+
+	/* For BC reasons, the bool $assoc overrides the long $options bit for PHP_JSON_OBJECT_AS_ARRAY */
+	if (!assoc_null) {
+		if (assoc) {
+			options |=  PHP_JSON_OBJECT_AS_ARRAY;
+		} else {
+			options &= ~PHP_JSON_OBJECT_AS_ARRAY;
+		}
+	}
+
+	php_json_decode_ex(return_value, str, str_len, options, depth);
+}
 
 /* {{{ proto mixed json_decode(string json [, bool assoc [, int depth]])
    Decodes the JSON representation into a PHP value */
